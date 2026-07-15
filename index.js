@@ -406,6 +406,52 @@ app.post('/api/payments', verifyToken, verifySupporter, async (req, res) => {
     }
 });
 
+// 13. GET payment history (supporter's own credit purchases)
+app.get('/api/payments', verifyToken, async (req, res) => {
+    try {
+        const query = {};
+        if (req.query.supporterEmail) query.supporter_email = req.query.supporterEmail;
+        const payments = await paymentsCollection.find(query).sort({ createdAt: -1 }).toArray();
+        res.send(payments);
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
+
+/* ===========================================================
+   WITHDRAWALS (Creator)
+   =========================================================== */
+
+// 14. POST withdrawal request (creator) — 20 credits = $1, min 200 credits raised
+app.post('/api/withdrawals', verifyToken, verifyCreator, async (req, res) => {
+    try {
+        const { withdrawal_credit, payment_system, account_number } = req.body;
+        const available = req.user.raised_credits || 0;
+
+        if (available < 200) {
+            return res.status(400).send({ message: 'Insufficient credit. Minimum 200 credits required to withdraw.' });
+        }
+        if (withdrawal_credit > available) {
+            return res.status(400).send({ message: 'Withdrawal exceeds available raised credits' });
+        }
+
+        const withdrawal = {
+            creator_email: req.user.email,
+            creator_name: req.user.name,
+            withdrawal_credit,
+            withdrawal_amount: withdrawal_credit / 20,
+            payment_system,
+            account_number,
+            withdraw_date: new Date(),
+            status: 'pending',
+        };
+        const result = await withdrawalsCollection.insertOne(withdrawal);
+        res.send(result);
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
 
 
 
