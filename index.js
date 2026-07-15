@@ -541,6 +541,65 @@ app.patch('/api/notifications/read-all', verifyToken, async (req, res) => {
 });
 
 
+/* ===========================================================
+   REPORTS (Supporter reports a suspicious/fraudulent campaign)
+   =========================================================== */
+
+// 18. POST report (supporter)
+app.post('/api/reports', verifyToken, verifySupporter, async (req, res) => {
+    try {
+        const { campaign_id, campaign_title, reason } = req.body;
+        const report = {
+            campaign_id,
+            campaign_title,
+            reporter_name: req.user.name,
+            reporter_email: req.user.email,
+            reason,
+            date: new Date(),
+            status: 'open',
+        };
+        const result = await reportsCollection.insertOne(report);
+        res.send(result);
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
+// 19. GET reports (admin)
+app.get('/api/reports', verifyToken, verifyAdmin, async (req, res) => {
+    try {
+        const reports = await reportsCollection.find({}).sort({ date: -1 }).toArray();
+        res.send(reports);
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
+// 20. PATCH report — admin suspends or deletes the reported campaign
+app.patch('/api/reports/:id', verifyToken, verifyAdmin, async (req, res) => {
+    try {
+        const { action } = req.body; // 'suspend' | 'delete'
+        const report = await reportsCollection.findOne({ _id: new ObjectId(req.params.id) });
+        if (!report) return res.status(404).send({ message: 'Report not found' });
+
+        if (action === 'suspend') {
+            await campaignsCollection.updateOne(
+                { _id: new ObjectId(report.campaign_id) },
+                { $set: { status: 'rejected' } }
+            );
+            await reportsCollection.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { status: 'suspended' } });
+        } else if (action === 'delete') {
+            await contributionsCollection.deleteMany({ campaign_id: report.campaign_id });
+            await campaignsCollection.deleteOne({ _id: new ObjectId(report.campaign_id) });
+            await reportsCollection.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { status: 'resolved' } });
+        }
+
+        res.send({ success: true });
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
 
 
 
