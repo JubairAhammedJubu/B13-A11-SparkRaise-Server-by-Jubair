@@ -453,6 +453,51 @@ app.post('/api/withdrawals', verifyToken, verifyCreator, async (req, res) => {
     }
 });
 
+// 15. GET withdrawals — creator sees own, admin sees all (optionally filtered by status)
+app.get('/api/withdrawals', verifyToken, async (req, res) => {
+    try {
+        const query = {};
+        if (req.user.role === 'creator') query.creator_email = req.user.email;
+        if (req.query.status) query.status = req.query.status;
+
+        const withdrawals = await withdrawalsCollection.find(query).sort({ withdraw_date: -1 }).toArray();
+        res.send(withdrawals);
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
+// 16. PATCH withdrawal → approve (admin "Payment Success" button)
+app.patch('/api/withdrawals/:id/approve', verifyToken, verifyAdmin, async (req, res) => {
+    try {
+        const withdrawal = await withdrawalsCollection.findOne({ _id: new ObjectId(req.params.id) });
+        if (!withdrawal) return res.status(404).send({ message: 'Withdrawal not found' });
+        if (withdrawal.status !== 'pending') return res.status(400).send({ message: 'Already processed' });
+
+        const result = await withdrawalsCollection.updateOne(
+            { _id: new ObjectId(req.params.id) },
+            { $set: { status: 'approved', approvedAt: new Date() } }
+        );
+
+        await usersCollection.updateOne(
+            { email: withdrawal.creator_email },
+            { $inc: { raised_credits: -withdrawal.withdrawal_credit } }
+        );
+
+        await notify(
+            `Your withdrawal request of ${withdrawal.withdrawal_credit} credits ($${withdrawal.withdrawal_amount}) was approved`,
+            withdrawal.creator_email,
+            '/dashboard/creator/payment-history'
+        );
+
+        res.send(result);
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
+
+
 
 
 console.log("Pinged your deployment. You successfully connected to MongoDB!");
