@@ -190,6 +190,56 @@ app.patch('/api/campaigns/:id', verifyToken, verifyCreator, async (req, res) => 
     }
 });
 
+// 6. DELETE campaign (creator) — refunds all approved supporters' contribution credits
+app.delete('/api/campaigns/:id', verifyToken, verifyCreator, async (req, res) => {
+    try {
+        const campaignId = req.params.id;
+        const campaign = await campaignsCollection.findOne({ _id: new ObjectId(campaignId), creator_email: req.user.email });
+        if (!campaign) return res.status(404).send({ message: 'Campaign not found' });
+
+        const approvedContributions = await contributionsCollection.find({
+            campaign_id: campaignId,
+            status: 'approved'
+        }).toArray();
+
+        for (const c of approvedContributions) {
+            await usersCollection.updateOne(
+                { email: c.supporter_email },
+                { $inc: { credits: c.Contribution_amount } }
+            );
+        }
+
+        await contributionsCollection.deleteMany({ campaign_id: campaignId });
+        const result = await campaignsCollection.deleteOne({ _id: new ObjectId(campaignId) });
+        res.send(result);
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
+// 7. PATCH campaign status (admin approve/reject)
+app.patch('/api/campaigns/:id/status', verifyToken, verifyAdmin, async (req, res) => {
+    try {
+        const { status } = req.body; // 'approved' | 'rejected'
+        const campaign = await campaignsCollection.findOne({ _id: new ObjectId(req.params.id) });
+        if (!campaign) return res.status(404).send({ message: 'Campaign not found' });
+
+        const result = await campaignsCollection.updateOne(
+            { _id: new ObjectId(req.params.id) },
+            { $set: { status, updatedAt: new Date() } }
+        );
+
+        await notify(
+            `Your campaign "${campaign.campaign_title}" was ${status} by the admin`,
+            campaign.creator_email,
+            '/dashboard/creator/my-campaigns'
+        );
+
+        res.send(result);
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
 
 
 
