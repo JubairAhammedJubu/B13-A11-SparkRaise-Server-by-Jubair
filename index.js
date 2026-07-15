@@ -601,6 +601,67 @@ app.patch('/api/reports/:id', verifyToken, verifyAdmin, async (req, res) => {
 });
 
 
+/* ===========================================================
+   USERS (Admin — Manage Users)
+   =========================================================== */
+
+// 21. GET all users (admin) — search + role filter
+app.get('/api/users', verifyToken, verifyAdmin, async (req, res) => {
+    try {
+        const query = {};
+        if (req.query.role) query.role = req.query.role;
+        if (req.query.search) {
+            query.$or = [
+                { name: { $regex: req.query.search, $options: 'i' } },
+                { email: { $regex: req.query.search, $options: 'i' } }
+            ];
+        }
+
+        const users = await usersCollection.find(query).sort({ createdAt: -1 }).toArray();
+        res.send(users);
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
+// 22. PATCH update user role (admin)
+app.patch('/api/users/:id/role', verifyToken, verifyAdmin, async (req, res) => {
+    try {
+        const { role } = req.body;
+        const result = await usersCollection.updateOne(
+            { _id: new ObjectId(req.params.id) },
+            { $set: { role, updatedAt: new Date() } }
+        );
+        res.send(result);
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
+// 23. DELETE user (admin — Remove button)
+app.delete('/api/users/:id', verifyToken, verifyAdmin, async (req, res) => {
+    try {
+        const result = await usersCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+        res.send(result);
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
+// 24. GET current user info
+app.get('/api/users/me', verifyToken, async (req, res) => {
+    try {
+        res.send(req.user);
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
+
+/* ===========================================================
+   DASHBOARD STATS
+   =========================================================== */
+
 
 
 console.log("Pinged your deployment. You successfully connected to MongoDB!");
