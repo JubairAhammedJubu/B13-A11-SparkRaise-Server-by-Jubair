@@ -326,6 +326,86 @@ app.get('/api/contributions', verifyToken, async (req, res) => {
     }
 });
 
+// 11. PATCH contribution status (creator approve/reject)
+app.patch('/api/contributions/:id', verifyToken, verifyCreator, async (req, res) => {
+    try {
+        const { status } = req.body; // 'approved' | 'rejected'
+        const contribution = await contributionsCollection.findOne({ _id: new ObjectId(req.params.id) });
+        if (!contribution) return res.status(404).send({ message: 'Contribution not found' });
+        if (contribution.creator_email !== req.user.email) return res.status(403).send({ message: 'forbidden' });
+        if (contribution.status !== 'pending') return res.status(400).send({ message: 'Contribution already reviewed' });
+
+        const result = await contributionsCollection.updateOne(
+            { _id: new ObjectId(req.params.id) },
+            { $set: { status, updatedAt: new Date() } }
+        );
+
+        if (status === 'approved') {
+            // add to campaign's raised total, and to creator's withdrawable balance
+            await campaignsCollection.updateOne(
+                { _id: new ObjectId(contribution.campaign_id) },
+                { $inc: { amount_raised: contribution.Contribution_amount } }
+            );
+            await usersCollection.updateOne(
+                { email: req.user.email },
+                { $inc: { raised_credits: contribution.Contribution_amount } }
+            );
+            await notify(
+                `Your contribution of ${contribution.Contribution_amount} credits to ${contribution.campaign_title} was approved by ${req.user.name}`,
+                contribution.supporter_email,
+                '/dashboard/supporter'
+            );
+        } else if (status === 'rejected') {
+            // refund credits back to supporter
+            await usersCollection.updateOne(
+                { email: contribution.supporter_email },
+                { $inc: { credits: contribution.Contribution_amount } }
+            );
+            await notify(
+                `Your contribution of ${contribution.Contribution_amount} credits to ${contribution.campaign_title} was rejected by ${req.user.name}`,
+                contribution.supporter_email,
+                '/dashboard/supporter'
+            );
+        }
+
+        res.send(result);
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
+
+/* ===========================================================
+   CREDITS / PAYMENTS (Supporter buys credits via Stripe)
+   =========================================================== */
+
+// 12. POST record a completed credit purchase
+app.post('/api/payments', verifyToken, verifySupporter, async (req, res) => {
+    try {
+        const { credits_purchased, price_paid, transactionId } = req.body;
+
+        const payment = {
+            supporter_email: req.user.email,
+            supporter_name: req.user.name,
+            credits_purchased,
+            price_paid,
+            transactionId,
+            paidAt: new Date(),
+            createdAt: new Date(),
+        };
+        const result = await paymentsCollection.insertOne(payment);
+
+        await usersCollection.updateOne(
+            { email: req.user.email },
+            { $inc: { credits: credits_purchased } }
+        );
+
+        res.send(result);
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
 
 
 
