@@ -662,6 +662,65 @@ app.get('/api/users/me', verifyToken, async (req, res) => {
    DASHBOARD STATS
    =========================================================== */
 
+// 25. Supporter stats
+app.get('/api/supporter/stats', verifyToken, verifySupporter, async (req, res) => {
+    try {
+        const email = req.user.email;
+        const [totalContributions, totalPending, approvedContribs] = await Promise.all([
+            contributionsCollection.countDocuments({ supporter_email: email }),
+            contributionsCollection.countDocuments({ supporter_email: email, status: 'pending' }),
+            contributionsCollection.find({ supporter_email: email, status: 'approved' }).toArray(),
+        ]);
+        const totalAmountContributed = approvedContribs.reduce((sum, c) => sum + (c.Contribution_amount || 0), 0);
+
+        res.send({ totalContributions, totalPending, totalAmountContributed, credits: req.user.credits || 0 });
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
+// 26. Creator stats
+app.get('/api/creator/stats', verifyToken, verifyCreator, async (req, res) => {
+    try {
+        const email = req.user.email;
+        const campaigns = await campaignsCollection.find({ creator_email: email }).toArray();
+        const totalCampaigns = campaigns.length;
+        const activeCampaigns = campaigns.filter(c => new Date(c.deadline) >= new Date()).length;
+        const totalRaised = campaigns.reduce((sum, c) => sum + (c.amount_raised || 0), 0);
+
+        res.send({
+            totalCampaigns,
+            activeCampaigns,
+            totalRaised,
+            raisedCredits: req.user.raised_credits || 0,
+            withdrawableDollars: (req.user.raised_credits || 0) / 20,
+        });
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
+// 27. Admin stats
+app.get('/api/admin/stats', verifyToken, verifyAdmin, async (req, res) => {
+    try {
+        const [totalSupporters, totalCreators, users, totalPayments] = await Promise.all([
+            usersCollection.countDocuments({ role: 'supporter' }),
+            usersCollection.countDocuments({ role: 'creator' }),
+            usersCollection.find({}).toArray(),
+            paymentsCollection.countDocuments(),
+        ]);
+        const totalAvailableCredits = users.reduce((sum, u) => sum + (u.credits || 0), 0);
+
+        res.send({
+            totalSupporters,
+            totalCreators,
+            totalAvailableCredits,
+            totalPayments,
+        });
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
 
 
 console.log("Pinged your deployment. You successfully connected to MongoDB!");
