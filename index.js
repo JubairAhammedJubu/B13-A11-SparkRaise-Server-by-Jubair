@@ -497,6 +497,50 @@ app.patch('/api/withdrawals/:id/approve', verifyToken, verifyAdmin, async (req, 
 });
 
 
+/* ===========================================================
+   NOTIFICATIONS
+   =========================================================== */
+
+// 17. GET notifications for logged-in user, sorted desc
+app.get('/api/notifications', verifyToken, async (req, res) => {
+    try {
+        const notifications = await notificationsCollection
+            .find({ toEmail: req.user.email })
+            .sort({ time: -1 })
+            .toArray();
+        res.send(notifications);
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
+// 17b. PATCH mark a single notification as read
+app.patch('/api/notifications/:id/read', verifyToken, async (req, res) => {
+    try {
+        const result = await notificationsCollection.updateOne(
+            { _id: new ObjectId(req.params.id), toEmail: req.user.email },
+            { $set: { read: true } }
+        );
+        res.send(result);
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
+// 17c. PATCH mark all of the logged-in user's notifications as read
+app.patch('/api/notifications/read-all', verifyToken, async (req, res) => {
+    try {
+        const result = await notificationsCollection.updateMany(
+            { toEmail: req.user.email, read: false },
+            { $set: { read: true } }
+        );
+        res.send(result);
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
+
 
 
 
