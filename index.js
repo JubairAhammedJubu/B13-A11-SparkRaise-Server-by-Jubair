@@ -132,6 +132,25 @@ app.get('/api/campaigns', async (req, res) => {
     res.send({ total, campaigns });
 });
 
+// 2. GET top funded campaigns (Home page) — top 6 approved by amount_raised
+app.get('/api/campaigns/top-funded', async (req, res) => {
+    try {
+        const campaigns = await campaignsCollection
+            .find({ status: 'approved' })
+            .sort({ amount_raised: -1 })
+            .limit(6)
+            .toArray();
+        res.send(campaigns);
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
+// 3. GET single campaign
+app.get('/api/campaigns/:id', async (req, res) => {
+    const result = await campaignsCollection.findOne({ _id: new ObjectId(req.params.id) });
+    res.send(result);
+});
 
 
 
