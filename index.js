@@ -152,6 +152,45 @@ app.get('/api/campaigns/:id', async (req, res) => {
     res.send(result);
 });
 
+// 4. POST new campaign (creator) — saved as "pending", visible after admin approval
+app.post('/api/campaigns', verifyToken, verifyCreator, async (req, res) => {
+    try {
+        const campaign = req.body;
+        const newCampaign = {
+            ...campaign,
+            creator_email: req.user.email,
+            creator_name: req.user.name,
+            amount_raised: 0,
+            status: 'pending',
+            createdAt: new Date()
+        };
+        const result = await campaignsCollection.insertOne(newCampaign);
+        res.send(result);
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
+// 5. PATCH update campaign (creator) — per doc, only title/story/reward_info are editable
+app.patch('/api/campaigns/:id', verifyToken, verifyCreator, async (req, res) => {
+    try {
+        const { campaign_title, campaign_story, reward_info } = req.body;
+        const updates = { updatedAt: new Date() };
+        if (campaign_title !== undefined) updates.campaign_title = campaign_title;
+        if (campaign_story !== undefined) updates.campaign_story = campaign_story;
+        if (reward_info !== undefined) updates.reward_info = reward_info;
+
+        const result = await campaignsCollection.updateOne(
+            { _id: new ObjectId(req.params.id), creator_email: req.user.email },
+            { $set: updates }
+        );
+        res.send(result);
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
+
 
 
 console.log("Pinged your deployment. You successfully connected to MongoDB!");
