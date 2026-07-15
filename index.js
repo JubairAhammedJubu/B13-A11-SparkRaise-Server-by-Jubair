@@ -241,6 +241,92 @@ app.patch('/api/campaigns/:id/status', verifyToken, verifyAdmin, async (req, res
     }
 });
 
+// 8. DELETE campaign (admin — Manage Campaigns)
+app.delete('/api/admin/campaigns/:id', verifyToken, verifyAdmin, async (req, res) => {
+    try {
+        await contributionsCollection.deleteMany({ campaign_id: req.params.id });
+        const result = await campaignsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+        res.send(result);
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
+
+/* ===========================================================
+   CONTRIBUTIONS
+   =========================================================== */
+
+// 9. POST contribution (supporter) — deducts credits immediately, status "pending"
+app.post('/api/contributions', verifyToken, verifySupporter, async (req, res) => {
+    try {
+        const { campaign_id, Contribution_amount, message } = req.body;
+
+        const campaign = await campaignsCollection.findOne({ _id: new ObjectId(campaign_id) });
+        if (!campaign) return res.status(404).send({ message: 'Campaign not found' });
+        if (campaign.status !== 'approved') return res.status(400).send({ message: 'Campaign is not open for contributions' });
+        if (Contribution_amount < campaign.minimum_Contribution) {
+            return res.status(400).send({ message: `Minimum contribution is ${campaign.minimum_Contribution} credits` });
+        }
+        if ((req.user.credits || 0) < Contribution_amount) {
+            return res.status(400).send({ message: 'Insufficient credits' });
+        }
+
+        const newContribution = {
+            campaign_id,
+            campaign_title: campaign.campaign_title,
+            Contribution_amount,
+            supporter_email: req.user.email,
+            supporter_name: req.user.name,
+            creator_name: campaign.creator_name,
+            creator_email: campaign.creator_email,
+            message: message || '',
+            current_date: new Date(),
+            status: 'pending',
+        };
+
+        const result = await contributionsCollection.insertOne(newContribution);
+
+        // deduct credits from supporter immediately
+        await usersCollection.updateOne(
+            { email: req.user.email },
+            { $inc: { credits: -Contribution_amount } }
+        );
+
+        await notify(
+            `${req.user.name} contributed ${Contribution_amount} credits to ${campaign.campaign_title}`,
+            campaign.creator_email,
+            '/dashboard/creator'
+        );
+
+        res.send(result);
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
+// 10. GET contributions — filterable by supporter, creator, campaign, status
+app.get('/api/contributions', verifyToken, async (req, res) => {
+    try {
+        const query = {};
+        if (req.query.supporterEmail) query.supporter_email = req.query.supporterEmail;
+        if (req.query.creatorEmail) query.creator_email = req.query.creatorEmail;
+        if (req.query.campaignId) query.campaign_id = req.query.campaignId;
+        if (req.query.status) query.status = req.query.status;
+
+        const page = parseInt(req.query.page) || 1;
+        const perPage = parseInt(req.query.perPage) || 10;
+        const skip = (page - 1) * perPage;
+
+        const total = await contributionsCollection.countDocuments(query);
+        const contributions = await contributionsCollection.find(query).sort({ current_date: -1 }).skip(skip).limit(perPage).toArray();
+        res.send({ total, contributions });
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
+
+
 
 
 console.log("Pinged your deployment. You successfully connected to MongoDB!");
